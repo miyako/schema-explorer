@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Relation flow / rendering choices</title>
+  <link rel="stylesheet" href="./flow-comparison.css">
+</head>
+<body>
+  <header>
+    <p class="eyebrow">SCHEMA ORBIT / WEBGPU STUDIES</p>
+    <h1>Relation flow</h1>
+    <p>Original reference and three softer alternatives. B / Fine is applied in the explorer.
+      Same route, speed, colors, and line thickness.
+      Light, pulse length, and gaps are percentages of the original setting.</p>
+  </header>
+  <p id="status" role="status">Starting WebGPU previews...</p>
+  <p id="error" role="alert" hidden></p>
+  <main id="examples" aria-label="Animated relation-flow choices"></main>
+  <footer>
+    <p>Each preview shows a normal and a selected relation, flowing N &rarr; 1,
+      using the explorer's actual WebGPU renderer and shared WGSL shader.</p>
+    <p><a href="./">Back to the explorer</a> &mdash; now using B / Fine.</p>
+  </footer>
+  <script type="module" src="./flow-comparison.mjs"></script>
+</body>
+</html>

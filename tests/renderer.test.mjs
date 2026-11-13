@@ -27,6 +27,10 @@ test('glass geometry has distinct front/back planes and flow follows source-to-d
     assert.equal(phase(frame.gridCount), 0);
     assert.ok(phase(frame.gridCount + 2) > 0, 'flow must advance away from the many-side anchor');
     assert.ok(phase(frame.gridCount + frame.flowCount - 1) > phase(frame.gridCount + 2));
+    const lines = renderer.geometry(scene, scene.nodes, camera, null, 1.25, true);
+    assert.deepEqual(lines.data, frame.data.slice(frame.gridCount * 10, (frame.gridCount + frame.flowCount) * 10));
+    assert.equal(lines.gridCount, 0);
+    assert.deepEqual(lines.draws, []);
   } finally {
     if (originalRatio) Object.defineProperty(globalThis, 'devicePixelRatio', originalRatio);
     else delete globalThis.devicePixelRatio;

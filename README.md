@@ -29,6 +29,18 @@ localhost is required. Unsupported browsers and adapter/device errors display
 an explicit error; there is no WebGL/SVG fallback. The table list and inspector
 remain available if GPU initialization fails.
 
+## Relation-flow choices
+
+[Compare animated line styles](https://miyako.github.io/schema-explorer/flow-comparison.html):
+the original reference plus **A / Soft**, **B / Fine**, and **C / Subtle**.
+Both normal and selected relations use the explorer's actual ribbon geometry
+and shared WGSL flow fragment. All alternatives hold pulse length at 20%.
+A uses 30% light / 30% gaps, B uses 20% / 20%, and C uses 10% / 10%,
+while keeping the route, speed, base line, and colors the same.
+Percentages are relative to the original setting. **B / Fine** is the explorer's
+selected default: 20% light, 20% pulse length, and 20% gaps, with unchanged speed.
+Reduced-motion preferences show static previews.
+
 ## Open a local catalog
 
 Choose **Open local file**, select a `catalog.4DCatalog`, and optionally select

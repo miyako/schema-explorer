@@ -1,6 +1,7 @@
 import {WIDTH, ROW, height, expansion, fieldType, clip, anchor} from './model.mjs';
+import {flowFragment, flowOptions} from './flow.mjs';
 
-const shader = `
+const shader = option => `
 struct Vertex {
   @builtin(position) position: vec4f,
   @location(0) uv: vec2f,
@@ -19,12 +20,7 @@ struct Vertex {
   return textureSample(image, imageSampler, in.uv) * in.color;
 }
 @fragment fn line(in: Vertex) -> @location(0) vec4f { return in.color; }
-@fragment fn flow(in: Vertex) -> @location(0) vec4f {
-  let phase = fract(in.uv.x - clock.x * 0.85);
-  let pulse = smoothstep(0.55, 0.88, phase) * (1.0 - smoothstep(0.9, 1.0, phase));
-  return vec4f(mix(in.color.rgb, vec3f(0.8, 0.96, 1.0), pulse),
-    in.color.a * (0.55 + 0.45 * pulse));
-}
+${flowFragment(option)}
 `;
 
 function ellipsis(ctx, text, width) {
@@ -39,7 +35,7 @@ function ellipsis(ctx, text, width) {
 }
 
 export class Renderer {
-  static async create(canvas, fail) {
+  static async create(canvas, fail, flowOption = flowOptions[2]) {
     if (!isSecureContext) throw new Error('WebGPU requires a secure context. Open this demo over HTTPS, or serve it on localhost for development.');
     if (!navigator.gpu) throw new Error('WebGPU is not available in this browser. Use a current WebGPU-enabled Chrome, Edge, or Safari on a supported device. No WebGL/SVG fallback is used.');
     const adapter = await navigator.gpu.requestAdapter();
@@ -51,7 +47,7 @@ export class Renderer {
     if (!context) throw new Error('The browser could not create a WebGPU canvas context.');
     const format = navigator.gpu.getPreferredCanvasFormat();
     context.configure({device, format, alphaMode: 'opaque'});
-    const module = device.createShaderModule({code: shader});
+    const module = device.createShaderModule({code: shader(flowOption)});
     const compilation = await module.getCompilationInfo();
     const errors = compilation.messages.filter(m => m.type === 'error');
     if (errors.length) throw new Error(errors.map(m => m.message).join('\n'));
@@ -76,7 +72,7 @@ export class Renderer {
       device.createRenderPipelineAsync(descriptor('line')),
       device.createRenderPipelineAsync(descriptor('flow')),
     ]);
-    return new Renderer(canvas, device, context, cards, lines, glass, flow);
+    return new this(canvas, device, context, cards, lines, glass, flow);
   }
 
   constructor(canvas, device, context, cards, lines, glass, flow) {
@@ -158,7 +154,7 @@ export class Renderer {
     return group;
   }
 
-  geometry(scene, nodes, camera, selected, aspect) {
+  geometry(scene, nodes, camera, selected, aspect, linesOnly = false) {
     const vertices = [];
     const emit = (p, color, uv = [0, 0]) => vertices.push(...p, ...uv, ...color);
     const vertex = (p, color, uv) => emit(clip(p, camera, aspect), color, uv);
@@ -215,6 +211,10 @@ export class Renderer {
       stroke(end, [end[0] + direction * 11, end[1] - 5, end[2]], color, distance / 180);
     }
     const flowCount = vertices.length / 10 - gridCount;
+    if (linesOnly) {
+      return {data: new Float32Array(vertices.slice(gridCount * 10)), gridCount: 0, flowCount,
+        draws: [], visible: 0, overview: 0};
+    }
     const visible = nodes.map(node => {
       const p = clip([node.x, node.y, node.z], camera, aspect);
       const extent = Math.max(WIDTH, height(node)) * 2.5;
