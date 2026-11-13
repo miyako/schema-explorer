@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>4D / Schema orbit</title>
+  <meta name="description" content="Explore a synthetic 4D commerce schema with an interactive WebGPU renderer.">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header>
+    <div><span class="eyebrow">4D LAB / WEBGPU</span><h1>Schema orbit</h1></div>
+    <div id="summary" aria-live="polite">Loading synthetic sample catalog...</div>
+    <button id="fit">Fit all</button>
+    <button id="front">Front view</button>
+    <button id="reset">Reset layout</button>
+  </header>
+  <main>
+    <nav aria-label="Schema tables">
+      <label for="search">FIND A TABLE OR FIELD</label>
+      <input id="search" type="search" placeholder="Search the catalog" autocomplete="off">
+      <div id="matches" aria-live="polite"></div>
+      <div id="tables"></div>
+      <details><summary>Navigation</summary>
+        <p>Drag to orbit. Shift-drag or right-drag to pan. Wheel / pinch to zoom.
+          Click a card to inspect. Drag a card to move it; double-click to collapse.</p>
+        <p>Touch: one finger on empty space orbits, two fingers pan/pinch.
+          Select a table from this list, then use its controls.
+          Arrow keys pan; + / - zoom; F fits all; Escape clears selection.</p>
+      </details>
+    </nav>
+    <section id="viewport" aria-label="Interactive schema viewport">
+      <canvas id="scene" tabindex="0" aria-label="WebGPU schema. Use the table list for keyboard-accessible inspection."></canvas>
+      <div id="error" role="alert" hidden></div>
+      <div class="hud"><span id="status" role="status">Starting WebGPU...</span>
+        <label>DEPTH <input id="depth" type="range" min="0" max="240" value="90"></label>
+      </div>
+      <div class="legend">CYAN / TABLES &nbsp; VIOLET / N &rarr; 1 RELATIONS &nbsp; GOLD / PRIMARY KEYS</div>
+    </section>
+    <aside aria-label="Table inspector">
+      <div class="eyebrow">INSPECTOR / READ ONLY</div>
+      <h2 id="table-title">Explore the structure</h2>
+      <p id="table-info">Select a table in the scene or list. Connected relations light up; all fields remain available here.</p>
+      <div id="actions" hidden>
+        <button id="focus">Focus</button>
+        <button id="collapse" aria-pressed="false">Collapse</button>
+        <button id="neighbors" aria-pressed="false">Isolate neighbors</button>
+        <button id="clear">Clear</button>
+        <label>Push / pull <input id="pull" type="range" min="-500" max="500" value="0"></label>
+      </div>
+      <div id="fields"></div>
+      <div id="relations"></div>
+      <details id="notices" hidden><summary>Catalog parser notes</summary><div id="warnings"></div></details>
+    </aside>
+  </main>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
