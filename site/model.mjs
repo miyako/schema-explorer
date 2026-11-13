@@ -39,7 +39,28 @@ export function makeScene(model) {
   return scene;
 }
 
-export function height(node) { return node.collapsed ? 58 : 78 + node.rows.length * ROW; }
+export function expansion(node) { return node.expansion ?? (node.collapsed ? 0 : 1); }
+
+export function height(node) { return 58 + expansion(node) * (20 + node.rows.length * ROW); }
+
+export function makeTransition(subject, to, start, duration = 320) {
+  const copy = value => Array.isArray(value) ? [...value] : value;
+  return {subject, to: Object.fromEntries(Object.entries(to).map(([key, value]) => [key, copy(value)])),
+    from: Object.fromEntries(Object.keys(to).map(key => [key, copy(subject[key])])),
+    start, duration};
+}
+
+export function advanceTransition(motion, now) {
+  const t = motion.duration ? Math.max(0, Math.min(1, (now - motion.start) / motion.duration)) : 1;
+  const eased = t * t * (3 - 2 * t);
+  for (const [key, end] of Object.entries(motion.to)) {
+    const start = motion.from[key];
+    motion.subject[key] = Array.isArray(end)
+      ? end.map((value, i) => start[i] + (value - start[i]) * eased)
+      : start + (end - start) * eased;
+  }
+  return t < 1;
+}
 
 export function layout(scene) {
   const columns = Math.max(1, Math.ceil(Math.sqrt(scene.nodes.length)));
@@ -61,6 +82,7 @@ export function layout(scene) {
     if (!p) unplaced++;
     n.offset = 0;
     n.collapsed = false;
+    delete n.expansion;
   }
   const bounds = scene.nodes.reduce((b, n) => [
     Math.min(b[0], n.x), Math.max(b[1], n.x), Math.min(b[2], n.y), Math.max(b[3], n.y),
@@ -112,7 +134,7 @@ export function pick(nodes, camera, aspect, nx, ny) {
 
 export function anchor(node, fieldIndex, side) {
   const row = node.rows.findIndex(f => f.index === fieldIndex);
-  const y = node.collapsed || row < 0 ? node.y : node.y + height(node) / 2 - 60 - row * ROW;
+  const y = row < 0 ? node.y : node.y + expansion(node) * ((78 + node.rows.length * ROW) / 2 - 60 - row * ROW);
   return [node.x + side * WIDTH / 2, y, node.z + 1];
 }
 

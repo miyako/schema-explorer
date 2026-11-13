@@ -1,11 +1,13 @@
 import {makeScene, layout, height, fieldType, neighborhood, fitCamera, pick,
-  cameraBasis, add, scale} from './model.mjs';
+  cameraBasis, add, scale, expansion, makeTransition, advanceTransition} from './model.mjs';
 import {Renderer} from './gpu.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('scene');
 let scene, renderer, selected = null, isolated = false, failed = false;
-let pending = false;
+let pending = false, dirty = true;
+const motions = new Map();
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const camera = {target: [0, 0, 0], distance: 1800, yaw: .15, pitch: .12};
 const aspect = () => canvas.clientWidth / Math.max(1, canvas.clientHeight);
 
@@ -23,23 +25,53 @@ function visibleNodes() {
 }
 
 function invalidate() {
-  if (pending || !renderer || failed) return;
+  dirty = true;
+  scheduleFrame();
+}
+
+function scheduleFrame() {
+  if (pending || !renderer || failed || document.hidden) return;
   pending = true;
-  requestAnimationFrame(() => {
+  requestAnimationFrame(now => {
     pending = false;
+    if (failed || document.hidden) return;
     try {
-      const result = renderer.render(scene, visibleNodes(), camera, selected);
-      $('status').textContent = `WEBGPU / ${result.visible} IN VIEW${isolated ? ' / NEIGHBORHOOD' : ''}${result.overview ? ` / ${result.overview} OVERVIEW CARDS` : ''}`;
+      if (motions.size) dirty = true;
+      for (const [subject, motion] of motions) {
+        if (!advanceTransition(motion, reducedMotion.matches ? Infinity : now)) motions.delete(subject);
+      }
+      const result = renderer.render(scene, visibleNodes(), camera, selected,
+        reducedMotion.matches ? 0 : now / 1000, dirty);
+      dirty = false;
+      const status = `WEBGPU / ${result.visible} IN VIEW${isolated ? ' / NEIGHBORHOOD' : ''}${result.overview ? ` / ${result.overview} OVERVIEW CARDS` : ''}`;
+      if ($('status').textContent !== status) $('status').textContent = status;
+      if (motions.size || (!reducedMotion.matches && scene.edges.length)) scheduleFrame();
     } catch (error) { fail(error); }
   });
 }
 
-function updateDepth() {
-  for (const node of scene.nodes) node.z = (node.id % 3 - 1) * Number($('depth').value) + node.offset;
+function move(subject, to, duration = 320) {
+  const motion = makeTransition(subject, {...motions.get(subject)?.to, ...to}, performance.now(),
+    reducedMotion.matches || !renderer || failed ? 0 : duration);
+  if (advanceTransition(motion, motion.start)) motions.set(subject, motion);
+  else motions.delete(subject);
   invalidate();
 }
 
-function fit() { fitCamera(camera, visibleNodes(), aspect()); invalidate(); }
+function updateDepth() {
+  for (const node of scene.nodes) {
+    const motion = motions.get(node);
+    if (motion) { delete motion.to.z; delete motion.from.z; }
+    node.z = (node.id % 3 - 1) * Number($('depth').value) + node.offset;
+  }
+  invalidate();
+}
+
+function fit(overrides = {}, nodes = visibleNodes()) {
+  const destination = {...camera, ...overrides};
+  fitCamera(destination, nodes.map(node => ({...node, expansion: node.collapsed ? 0 : 1})), aspect());
+  move(camera, destination, 360);
+}
 
 function showTables() {
   const query = $('search').value.trim().toLocaleLowerCase();
@@ -47,15 +79,36 @@ function showTables() {
     .some(name => name.toLocaleLowerCase().includes(query)));
   $('matches').textContent = `${matches.length} / ${scene.nodes.length} tables`;
   $('tables').replaceChildren(...matches.map(node => {
-    const button = document.createElement('button');
+    const row = document.createElement('div'); row.className = 'table-entry';
+    const button = document.createElement('button'); button.className = 'table-select';
     button.dataset.tableId = node.id;
-    button.setAttribute('aria-pressed', String(node.id === selected));
+    button.title = node.table.name;
     const name = document.createElement('span'); name.textContent = node.table.name;
     const count = document.createElement('small'); count.textContent = node.table.fields.length;
     button.append(name, count);
     button.onclick = () => { select(node.id); focus(); };
-    return button;
+    const toggle = document.createElement('button'); toggle.className = 'table-toggle';
+    toggle.dataset.collapseId = node.id;
+    toggle.onclick = () => setCollapsed([node], !node.collapsed);
+    row.append(button, toggle);
+    return row;
   }));
+  updateTableControls();
+}
+
+function updateTableControls() {
+  for (const button of $('tables').querySelectorAll('[data-table-id]')) {
+    button.setAttribute('aria-pressed', String(Number(button.dataset.tableId) === selected));
+  }
+  for (const button of $('tables').querySelectorAll('[data-collapse-id]')) {
+    const node = scene.nodes[Number(button.dataset.collapseId)];
+    button.textContent = node.collapsed ? '+' : '-';
+    button.title = `${node.collapsed ? 'Restore' : 'Collapse'} ${node.table.name}`;
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-pressed', String(node.collapsed));
+  }
+  $('collapse-all').disabled = scene.nodes.every(node => node.collapsed);
+  $('restore-all').disabled = scene.nodes.every(node => !node.collapsed);
 }
 
 function select(id) {
@@ -70,7 +123,7 @@ function select(id) {
   $('relations').replaceChildren();
   if (node) {
     $('pull').value = node.offset;
-    $('collapse').textContent = node.collapsed ? 'Expand' : 'Collapse';
+    $('collapse').textContent = node.collapsed ? 'Restore' : 'Collapse';
     $('collapse').setAttribute('aria-pressed', String(node.collapsed));
     for (const field of node.table.fields) {
       const row = document.createElement('div'); row.className = 'field';
@@ -100,30 +153,40 @@ function select(id) {
     }
   } else isolated = false;
   $('neighbors').setAttribute('aria-pressed', String(isolated));
-  showTables(); invalidate();
+  updateTableControls(); invalidate();
 }
 
 function focus() {
   const node = scene.nodes[selected];
   if (!node) return;
-  camera.target = [node.x, node.y, node.z];
-  camera.distance = Math.max(520, height(node) * 2, 400 / aspect());
-  invalidate();
+  const destination = {...node, ...motions.get(node)?.to, expansion: node.collapsed ? 0 : 1};
+  move(camera, {target: [destination.x, destination.y, destination.z],
+    distance: Math.max(520, height(destination) * 2, 400 / aspect())}, 360);
 }
 
 function collapse() {
   if (selected === null) return;
-  scene.nodes[selected].collapsed = !scene.nodes[selected].collapsed;
+  setCollapsed([scene.nodes[selected]], !scene.nodes[selected].collapsed);
+}
+
+function setCollapsed(nodes, collapsed) {
+  for (const node of nodes) {
+    node.expansion = expansion(node);
+    node.collapsed = collapsed;
+    move(node, {expansion: collapsed ? 0 : 1}, 260);
+  }
   select(selected);
 }
 
 function pan(dx, dy) {
+  motions.delete(camera);
   const {right, up} = cameraBasis(camera);
   const units = 2 * camera.distance * Math.tan(Math.PI / 8) / Math.max(1, canvas.clientHeight);
   camera.target = add(camera.target, add(scale(right, -dx * units), scale(up, dy * units)));
 }
 
 function zoom(factor) {
+  motions.delete(camera);
   camera.distance = Math.max(180, Math.min(300000, camera.distance * factor));
   invalidate();
 }
@@ -136,12 +199,32 @@ function hit(event) {
 }
 
 function installControls() {
-  $('fit').onclick = fit;
-  $('front').onclick = () => { camera.yaw = camera.pitch = 0; fit(); };
+  $('fit').onclick = () => fit();
+  $('front').onclick = () => fit({yaw: 0, pitch: 0});
   $('reset').onclick = () => {
-    layout(scene); isolated = false; $('depth').value = 90;
-    updateDepth(); select(null); camera.yaw = .15; camera.pitch = .12; fit();
+    const restored = layout({nodes: scene.nodes.map(node => ({...node}))});
+    for (const destination of restored.nodes) {
+      destination.z = (destination.id % 3 - 1) * 90;
+      const node = scene.nodes[destination.id];
+      node.expansion = expansion(node); node.collapsed = false; node.offset = 0;
+      move(node, {x: destination.x, y: destination.y, z: destination.z, expansion: 1}, 360);
+    }
+    isolated = false; $('depth').value = 90; select(null);
+    fit({yaw: .15, pitch: .12}, restored.nodes);
   };
+  $('collapse-all').onclick = () => setCollapsed(scene.nodes, true);
+  $('restore-all').onclick = () => setCollapsed(scene.nodes, false);
+  for (const [buttonId, panelId, className] of [
+    ['toggle-tables', 'tables-panel', 'hide-tables'],
+    ['toggle-inspector', 'inspector-panel', 'hide-inspector'],
+  ]) {
+    $(buttonId).onclick = () => {
+      const hidden = $('workspace').classList.toggle(className);
+      $(buttonId).setAttribute('aria-expanded', String(!hidden));
+      $(panelId).inert = hidden;
+      $(panelId).setAttribute('aria-hidden', String(hidden));
+    };
+  }
   $('search').oninput = showTables;
   $('focus').onclick = focus;
   $('collapse').onclick = collapse;
@@ -159,6 +242,7 @@ function installControls() {
   let gesture = null;
   canvas.oncontextmenu = event => event.preventDefault();
   canvas.onpointerdown = event => {
+    motions.delete(camera);
     canvas.focus(); canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, {x: event.clientX, y: event.clientY});
     const picked = hit(event);
@@ -178,6 +262,8 @@ function installControls() {
       if (after > 1 && before > 1) zoom(before / after);
       pan(dx / 2, dy / 2);
     } else if (gesture.mode === 'node' && gesture.moved) {
+      motions.delete(gesture.node);
+      gesture.node.expansion = gesture.node.collapsed ? 0 : 1;
       const old = hitPlane(previous.x, previous.y, gesture.node.z);
       const now = hitPlane(event.clientX, event.clientY, gesture.node.z);
       gesture.node.x += now[0] - old[0]; gesture.node.y += now[1] - old[1];
@@ -213,6 +299,8 @@ function installControls() {
     event.preventDefault(); invalidate();
   };
   new ResizeObserver(invalidate).observe(canvas);
+  document.addEventListener('visibilitychange', invalidate);
+  reducedMotion.addEventListener('change', invalidate);
 }
 
 function hitPlane(x, y, z) {

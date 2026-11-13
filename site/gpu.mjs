@@ -1,4 +1,4 @@
-import {WIDTH, ROW, height, fieldType, clip, anchor} from './model.mjs';
+import {WIDTH, ROW, height, expansion, fieldType, clip, anchor} from './model.mjs';
 
 const shader = `
 struct Vertex {
@@ -14,10 +14,17 @@ struct Vertex {
 }
 @group(0) @binding(0) var image: texture_2d<f32>;
 @group(0) @binding(1) var imageSampler: sampler;
+@group(0) @binding(2) var<uniform> clock: vec4f;
 @fragment fn card(in: Vertex) -> @location(0) vec4f {
   return textureSample(image, imageSampler, in.uv) * in.color;
 }
 @fragment fn line(in: Vertex) -> @location(0) vec4f { return in.color; }
+@fragment fn flow(in: Vertex) -> @location(0) vec4f {
+  let phase = fract(in.uv.x - clock.x * 0.85);
+  let pulse = smoothstep(0.55, 0.88, phase) * (1.0 - smoothstep(0.9, 1.0, phase));
+  return vec4f(mix(in.color.rgb, vec3f(0.8, 0.96, 1.0), pulse),
+    in.color.a * (0.55 + 0.45 * pulse));
+}
 `;
 
 function ellipsis(ctx, text, width) {
@@ -48,7 +55,7 @@ export class Renderer {
     const compilation = await module.getCompilationInfo();
     const errors = compilation.messages.filter(m => m.type === 'error');
     if (errors.length) throw new Error(errors.map(m => m.message).join('\n'));
-    const descriptor = entryPoint => ({
+    const descriptor = (entryPoint, topology = 'triangle-list') => ({
       layout: 'auto',
       vertex: {module, entryPoint: 'vertex', buffers: [{
         arrayStride: 40, attributes: [
@@ -61,25 +68,31 @@ export class Renderer {
         color: {srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha'},
         alpha: {srcFactor: 'one', dstFactor: 'one-minus-src-alpha'},
       }}]},
-      primitive: {topology: entryPoint === 'line' ? 'line-list' : 'triangle-list'},
+      primitive: {topology},
     });
-    const [cards, lines] = await Promise.all([
+    const [cards, lines, glass, flow] = await Promise.all([
       device.createRenderPipelineAsync(descriptor('card')),
+      device.createRenderPipelineAsync(descriptor('line', 'line-list')),
       device.createRenderPipelineAsync(descriptor('line')),
+      device.createRenderPipelineAsync(descriptor('flow')),
     ]);
-    return new Renderer(canvas, device, context, cards, lines);
+    return new Renderer(canvas, device, context, cards, lines, glass, flow);
   }
 
-  constructor(canvas, device, context, cards, lines) {
-    Object.assign(this, {canvas, device, context, cards, lines});
+  constructor(canvas, device, context, cards, lines, glass, flow) {
+    Object.assign(this, {canvas, device, context, cards, lines, glass, flow});
     this.sampler = device.createSampler({magFilter: 'linear', minFilter: 'linear'});
+    this.clock = device.createBuffer({size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST});
+    this.flowGroup = device.createBindGroup({layout: flow.getBindGroupLayout(0), entries: [
+      {binding: 2, resource: {buffer: this.clock}},
+    ]});
     this.cache = new Map();
     this.bufferSize = 0;
   }
 
-  texture(node, selected, overview = false) {
-    const key = overview ? 'overview' : node.id;
-    const version = overview ? 'overview' : `${node.collapsed}/${selected}`;
+  texture(node, selected, overview = false, collapsed = false) {
+    const key = overview ? 'overview' : `${node.id}/${collapsed}`;
+    const version = overview ? 'overview' : String(selected);
     let cached = this.cache.get(key);
     if (cached?.version === version) {
       this.cache.delete(key); this.cache.set(key, cached);
@@ -87,13 +100,14 @@ export class Renderer {
     }
     cached?.texture.destroy();
     const canvas = document.createElement('canvas');
-    const h = overview ? 100 : height(node);
+    const h = overview ? 100 : collapsed ? 58 : 78 + node.rows.length * ROW;
     canvas.width = WIDTH * 2; canvas.height = h * 2;
     const ctx = canvas.getContext('2d');
     ctx.scale(2, 2);
     const gradient = ctx.createLinearGradient(0, 0, WIDTH, h);
-    gradient.addColorStop(0, selected ? 'rgba(24,69,87,.98)' : 'rgba(18,43,61,.96)');
-    gradient.addColorStop(1, 'rgba(8,20,37,.9)');
+    gradient.addColorStop(0, selected ? 'rgba(35,90,109,.88)' : 'rgba(24,58,77,.82)');
+    gradient.addColorStop(.45, 'rgba(15,35,53,.74)');
+    gradient.addColorStop(1, 'rgba(8,20,37,.62)');
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, WIDTH, h);
     ctx.strokeStyle = selected ? '#b5f6ff' : '#438ba4'; ctx.lineWidth = selected ? 3 : 1;
     ctx.strokeRect(1.5, 1.5, WIDTH - 3, h - 3);
@@ -103,7 +117,7 @@ export class Renderer {
     if (overview) {
       ctx.font = '11px system-ui'; ctx.fillStyle = '#91b5ca';
       ctx.fillText('Zoom in or select from the table list', 16, 65);
-    } else if (node.collapsed) {
+    } else if (collapsed) {
       ctx.font = '10px system-ui'; ctx.fillStyle = '#8faec2';
       ctx.fillText(`${node.table.fields.length} fields / collapsed`, 16, 47);
     } else {
@@ -130,25 +144,38 @@ export class Renderer {
       {binding: 0, resource: texture.createView()}, {binding: 1, resource: this.sampler},
     ]});
     this.cache.delete(key); this.cache.set(key, {texture, group, version});
-    // At most 128 full-resolution card textures, plus one shared overview texture.
-    while (this.cache.size > 129) {
+    // Expanded and compact textures crossfade without rasterizing text every frame.
+    while (this.cache.size > 257) {
       const oldest = this.cache.keys().next().value;
       this.cache.get(oldest).texture.destroy(); this.cache.delete(oldest);
     }
     return group;
   }
 
-  render(scene, nodes, camera, selected) {
-    const {canvas, device, context} = this;
-    const ratio = Math.min(devicePixelRatio || 1, 2), rect = canvas.getBoundingClientRect();
-    const limit = device.limits.maxTextureDimension2D;
-    const width = Math.min(limit, Math.max(1, Math.round(rect.width * ratio)));
-    const h = Math.min(limit, Math.max(1, Math.round(rect.height * ratio)));
-    if (canvas.width !== width || canvas.height !== h) { canvas.width = width; canvas.height = h; }
-    const aspect = rect.width / Math.max(1, rect.height);
+  geometry(scene, nodes, camera, selected, aspect) {
     const vertices = [];
-    const vertex = (p, color, uv = [0, 0]) => vertices.push(...clip(p, camera, aspect), ...uv, ...color);
+    const emit = (p, color, uv = [0, 0]) => vertices.push(...p, ...uv, ...color);
+    const vertex = (p, color, uv) => emit(clip(p, camera, aspect), color, uv);
     const line = (a, b, color) => { vertex(a, color); vertex(b, color); };
+    const quad = (corners, color) => {
+      for (const index of [0, 2, 1, 1, 2, 3]) vertex(corners[index], color, [index % 2, Math.floor(index / 2)]);
+    };
+    const stroke = (a, b, color, start, end = start) => {
+      const p = clip(a, camera, aspect), q = clip(b, camera, aspect);
+      if (p[3] <= 1 || q[3] <= 1) return;
+      const {width, height} = this.canvas;
+      const dx = (q[0] / q[3] - p[0] / p[3]) * width;
+      const dy = (q[1] / q[3] - p[1] / p[3]) * height;
+      const length = Math.hypot(dx, dy);
+      if (!length) return;
+      const pixels = 1.5 * Math.min(devicePixelRatio || 1, 2);
+      const nx = -dy / length * pixels / width, ny = dx / length * pixels / height;
+      const corners = [p, p, q, q].map((point, i) => [
+        point[0] + (i % 2 ? -nx : nx) * point[3],
+        point[1] + (i % 2 ? -ny : ny) * point[3], point[2], point[3],
+      ]);
+      for (const i of [0, 1, 2, 2, 1, 3]) emit(corners[i], color, [i < 2 ? start : end, 0]);
+    };
     const center = camera.target;
     const spacing = Math.max(150, 150 * Math.floor(camera.distance / 4000));
     for (let i = -16; i <= 16; i++) {
@@ -157,6 +184,7 @@ export class Renderer {
       line([x, center[1] - 16 * spacing, -600], [x, center[1] + 16 * spacing, -600], [.12, .32, .43, .22]);
       line([center[0] - 16 * spacing, y, -600], [center[0] + 16 * spacing, y, -600], [.12, .32, .43, .22]);
     }
+    const gridCount = vertices.length / 10;
     const ids = new Set(nodes.map(n => n.id));
     for (const edge of scene.edges) {
       const a = scene.nodes[edge.source.tableIndex], b = scene.nodes[edge.destination.tableIndex];
@@ -168,17 +196,19 @@ export class Renderer {
       const c2 = [end[0] + (a === b ? side : -side) * bend, end[1] - (a === b ? 90 : 0), end[2] - 20];
       const active = selected === a.id || selected === b.id;
       const color = active ? [.84, .68, 1, 1] : [.55, .46, .94, selected === null ? .6 : .12];
-      let prev = start;
-      for (let i = 1; i <= 24; i++) {
-        const t = i / 24, s = 1 - t;
+      let prev = start, distance = 0;
+      for (let i = 1; i <= 48; i++) {
+        const t = i / 48, s = 1 - t;
         const p = start.map((v, k) => s ** 3 * v + 3 * s ** 2 * t * c1[k] + 3 * s * t ** 2 * c2[k] + t ** 3 * end[k]);
-        line(prev, p, color); prev = p;
+        const next = distance + Math.hypot(...p.map((v, k) => v - prev[k]));
+        stroke(prev, p, color, distance / 180, next / 180);
+        prev = p; distance = next;
       }
       const direction = a === b ? 1 : -side;
-      line(end, [end[0] + direction * 11, end[1] + 5, end[2]], color);
-      line(end, [end[0] + direction * 11, end[1] - 5, end[2]], color);
+      stroke(end, [end[0] + direction * 11, end[1] + 5, end[2]], color, distance / 180);
+      stroke(end, [end[0] + direction * 11, end[1] - 5, end[2]], color, distance / 180);
     }
-    const lineCount = vertices.length / 10;
+    const flowCount = vertices.length / 10 - gridCount;
     const visible = nodes.map(node => {
       const p = clip([node.x, node.y, node.z], camera, aspect);
       const extent = Math.max(WIDTH, height(node)) * 2.5;
@@ -191,29 +221,72 @@ export class Renderer {
     const draws = [];
     for (const {node} of visible) {
       const x = node.x, y = node.y, z = node.z, w = WIDTH / 2, h = height(node) / 2;
-      const color = [1, 1, 1, 1];
-      const first = vertices.length / 10;
       const corners = [[x - w, y + h, z], [x + w, y + h, z], [x - w, y - h, z], [x + w, y - h, z]];
-      for (const index of [0, 2, 1, 1, 2, 3]) vertex(corners[index], color, [index % 2, Math.floor(index / 2)]);
-      draws.push({first, group: this.texture(node, node.id === selected, !detailed.has(node.id))});
+      const back = corners.map(([x, y, z]) => [x, y, z - 22]);
+      const glassFirst = vertices.length / 10;
+      quad(back, [.1, .32, .42, .25]);
+      const perimeter = [0, 1, 3, 2];
+      for (let i = 0; i < 4; i++) {
+        const a = perimeter[i], b = perimeter[(i + 1) % 4];
+        quad([corners[a], corners[b], back[a], back[b]], [.2, .62, .72, i === 0 ? .4 : .22]);
+      }
+      const faces = [];
+      const open = expansion(node), overview = !detailed.has(node.id);
+      for (const [collapsed, opacity] of overview ? [[false, 1]] : [[false, open], [true, 1 - open]]) {
+        if (opacity <= 0) continue;
+        const first = vertices.length / 10;
+        quad(corners, [1, 1, 1, opacity]);
+        faces.push({first, group: this.texture(node, node.id === selected, overview, collapsed)});
+      }
+      const rimFirst = vertices.length / 10;
+      const rim = node.id === selected ? [.6, .95, 1, .8] : [.3, .7, .82, .5];
+      for (let i = 0; i < 4; i++) {
+        const a = perimeter[i], b = perimeter[(i + 1) % 4];
+        line(back[a], back[b], rim);
+        line(corners[a], back[a], rim);
+      }
+      draws.push({glassFirst, faces, rimFirst});
     }
-    const data = new Float32Array(vertices);
-    if (data.byteLength > this.bufferSize) {
-      this.buffer?.destroy();
-      this.bufferSize = Math.max(4096, data.byteLength * 2);
-      this.buffer = device.createBuffer({size: this.bufferSize, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
+    return {data: new Float32Array(vertices), gridCount, flowCount, draws,
+      visible: visible.length, overview: Math.max(0, visible.length - 128)};
+  }
+
+  render(scene, nodes, camera, selected, time = 0, changed = true) {
+    const {canvas, device, context} = this;
+    const ratio = Math.min(devicePixelRatio || 1, 2), rect = canvas.getBoundingClientRect();
+    const limit = device.limits.maxTextureDimension2D;
+    const width = Math.min(limit, Math.max(1, Math.round(rect.width * ratio)));
+    const h = Math.min(limit, Math.max(1, Math.round(rect.height * ratio)));
+    const resized = canvas.width !== width || canvas.height !== h;
+    if (resized) { canvas.width = width; canvas.height = h; }
+    if (changed || resized || !this.frame) {
+      this.frame = this.geometry(scene, nodes, camera, selected, rect.width / Math.max(1, rect.height));
+      const {data} = this.frame;
+      if (data.byteLength > this.bufferSize) {
+        this.buffer?.destroy();
+        this.bufferSize = Math.max(4096, data.byteLength * 2);
+        this.buffer = device.createBuffer({size: this.bufferSize, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST});
+      }
+      device.queue.writeBuffer(this.buffer, 0, data);
     }
-    device.queue.writeBuffer(this.buffer, 0, data);
+    device.queue.writeBuffer(this.clock, 0, new Float32Array([time % 3600, 0, 0, 0]));
+    const frame = this.frame;
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({colorAttachments: [{
       view: context.getCurrentTexture().createView(), clearValue: {r: .02, g: .045, b: .08, a: 1},
       loadOp: 'clear', storeOp: 'store',
     }]});
     pass.setVertexBuffer(0, this.buffer);
-    pass.setPipeline(this.lines); pass.draw(lineCount);
-    pass.setPipeline(this.cards);
-    for (const draw of draws) { pass.setBindGroup(0, draw.group); pass.draw(6, 1, draw.first); }
+    pass.setPipeline(this.lines); pass.draw(frame.gridCount);
+    pass.setPipeline(this.flow); pass.setBindGroup(0, this.flowGroup);
+    pass.draw(frame.flowCount, 1, frame.gridCount);
+    for (const draw of frame.draws) {
+      pass.setPipeline(this.glass); pass.draw(30, 1, draw.glassFirst);
+      pass.setPipeline(this.cards);
+      for (const face of draw.faces) { pass.setBindGroup(0, face.group); pass.draw(6, 1, face.first); }
+      pass.setPipeline(this.lines); pass.draw(16, 1, draw.rimFirst);
+    }
     pass.end(); device.queue.submit([encoder.finish()]);
-    return {visible: visible.length, overview: Math.max(0, visible.length - 128)};
+    return {visible: frame.visible, overview: frame.overview};
   }
 }

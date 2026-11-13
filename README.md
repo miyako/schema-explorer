@@ -8,10 +8,19 @@ read-only WebGPU explorer of a **synthetic** 4D commerce schema: 12 tables and
 
 Drag empty space to orbit, Shift-drag or right-drag to pan, and wheel/pinch to
 zoom. Select a table to inspect all fields and relations. Drag a card to move
-it, double-click to collapse, or use the inspector to focus, isolate neighbors,
-and push/pull depth. Search matches table and field names. Reset layout restores
-the sample positions. With the canvas focused, arrows pan, `+`/`-` zoom, `F` fits,
-and Escape clears selection.
+it, double-click to collapse/restore, or use the inspector to focus, isolate
+neighbors, and push/pull depth. Each sidebar entry also has a `-`/`+` table
+toggle; **Collapse all** and **Restore all** work across the whole schema, even
+when search or neighbor isolation is active. **Tables** and **Inspector** in
+the header independently hide/restore the side panels.
+
+Search matches table and field names. Selecting a result, focusing, fitting,
+and changing to front view use a brisk 360 ms camera transition. Table
+collapse/restore animates its height, content, and relation anchors over
+260 ms. Reset layout smoothly restores the sample positions, expansion,
+depth, and camera. Direct orbit/pan/zoom interrupts camera animation.
+With the canvas focused, arrows pan, `+`/`-` zoom, `F` fits, and Escape clears
+selection.
 
 A current WebGPU-enabled browser and supported graphics device are required
 (for example Chrome, Edge, or Safari 26 with hardware acceleration). HTTPS or
@@ -33,7 +42,15 @@ The frontend is adapted from that implementation. The fixture contains no
 private/local user catalog contents. Do not replace it with a private catalog:
 everything deployed to Pages is public.
 
-Cards, curved relations, arrows, and the grid are rendered using WebGPU/WGSL.
+Cards have actual extruded glass-panel geometry, tinted translucent faces,
+and highlighted rims (not physically accurate refraction). Curved relations
+carry continuously animated pulses **from the many-side (N) field to the
+one-side (1) field**, including self-relations. Flow is shader-driven with
+cached geometry between interactions; hidden tabs stop rendering. The system
+**reduced-motion** preference makes transitions immediate and disables moving
+flow, preserving static relation arrows.
+
+Panels, relations, arrows, and the grid are rendered using WebGPU/WGSL.
 Canvas 2D only rasterizes text and decoration into textures. Cards show up to
 eight prioritized fields; the inspector shows every field. At most 128 visible
 cards receive detailed textures. This is a demo, not a database editor or a
@@ -52,5 +69,6 @@ node --test tests/*.test.mjs
 ```
 
 The workflow runs the same checks before deployment. Model tests cover picking,
-layout, field priorities, self-relations, and camera fitting; publication tests
-check the synthetic fixture and project-relative asset resolution.
+layout, field priorities, self-relations, camera fitting, and interruptible
+transitions. Renderer checks cover panel depth and directional flow geometry;
+publication tests check the synthetic fixture and project-relative assets.

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {makeScene, height, anchor, neighborhood, pick, clip, fitCamera, layout, MAX_FIELDS} from '../site/model.mjs';
+import {makeScene, height, anchor, neighborhood, pick, clip, fitCamera, layout,
+  makeTransition, advanceTransition, MAX_FIELDS} from '../site/model.mjs';
 
 const field = (name, primaryKey = false) => ({name, primaryKey, typeCode: 13, indexUUIDs: []});
 const table = (name, count = 3, position) => ({
@@ -82,4 +83,52 @@ test('extreme but finite editor coordinates normalize without overflowing', () =
   for (const n of scene.nodes) assert.ok(Number.isFinite(n.x) && Number.isFinite(n.y));
   assert.ok(scene.nodes[1].x - scene.nodes[0].x <= 20001);
   assert.ok(scene.nodes[1].x - scene.nodes[0].x >= 19999);
+});
+
+test('collapsing interpolates card bounds and field anchors, and restores from a partial transition', () => {
+  const node = makeScene(catalog([table('A')])).nodes[0];
+  const fullHeight = height(node), fullAnchor = anchor(node, 0, 1);
+  node.expansion = 1; node.collapsed = true;
+  const closing = makeTransition(node, {expansion: 0}, 100, 260);
+  assert.equal(advanceTransition(closing, 230), true);
+  assert.equal(height(node), (fullHeight + 58) / 2);
+  assert.equal(anchor(node, 0, 1)[1], (fullAnchor[1] + node.y) / 2);
+
+  const camera = {yaw: 0, pitch: 0, distance: 1000, target: [0, 0, 0]};
+  const p = clip([node.x, node.y + height(node) / 2 + 1, node.z], camera, 1);
+  assert.equal(pick([node], camera, 1, p[0] / p[3], p[1] / p[3]), null);
+
+  const halfway = height(node);
+  node.collapsed = false;
+  const opening = makeTransition(node, {expansion: 1}, 230, 260);
+  advanceTransition(opening, 230);
+  assert.equal(height(node), halfway);
+  assert.equal(advanceTransition(opening, 490), false);
+  assert.equal(height(node), fullHeight);
+  assert.deepEqual(anchor(node, 0, 1), fullAnchor);
+  node.collapsed = true;
+  advanceTransition(makeTransition(node, {expansion: 0}, 500, 260), 760);
+  assert.equal(height(node), 58);
+  assert.equal(anchor(node, 0, 1)[1], node.y);
+});
+
+test('camera transitions are smooth, interruptible, and support immediate reduced-motion endpoints', () => {
+  const camera = {target: [0, 0, 0], distance: 1800, yaw: .15, pitch: .12};
+  const target = {target: [100, 200, 90], distance: 600, yaw: 0, pitch: 0};
+  const motion = makeTransition(camera, target, 0, 360);
+  target.target[0] = 999;
+  assert.equal(advanceTransition(motion, 0), true);
+  assert.equal(camera.distance, 1800);
+  advanceTransition(motion, 180);
+  assert.deepEqual(camera.target, [50, 100, 45]);
+  assert.equal(camera.distance, 1200);
+  const next = makeTransition(camera, {target: [-100, 0, 0], distance: 900}, 180, 360);
+  advanceTransition(next, 180);
+  assert.deepEqual(camera.target, [50, 100, 45]);
+  assert.equal(advanceTransition(next, 540), false);
+  assert.deepEqual(camera.target, [-100, 0, 0]);
+  assert.equal(camera.distance, 900);
+  assert.equal(advanceTransition(makeTransition(camera, {yaw: 0, pitch: 0}, 600, 0), 600), false);
+  assert.equal(camera.yaw, 0);
+  assert.equal(camera.pitch, 0);
 });
