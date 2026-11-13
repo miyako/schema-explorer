@@ -22,6 +22,20 @@ jobs:
           node-version: '22'
       - name: Check static demo
         run: node --test tests/*.test.mjs
+      - name: Check native-browser catalog parsing and local-only loading
+        run: |
+          python3 -m http.server 4182 --bind 127.0.0.1 > /tmp/schema-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in 1 2 3 4 5; do
+            curl --fail --silent http://127.0.0.1:4182/tests/browser.html > /dev/null && break
+            sleep 1
+          done
+          google-chrome --headless --no-sandbox --disable-gpu --disable-dev-shm-usage \
+            --force-prefers-reduced-motion --virtual-time-budget=30000 \
+            --dump-dom http://127.0.0.1:4182/tests/browser.html > /tmp/schema-browser.html
+          cat /tmp/schema-browser.html
+          grep -q '<body data-status="passed">' /tmp/schema-browser.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

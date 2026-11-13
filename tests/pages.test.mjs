@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {makeScene} from '../site/model.mjs';
+import sample from '../site/sample.mjs';
 
 const read = path => readFile(new URL(`../site/${path}`, import.meta.url), 'utf8');
 
 test('published fixture is the synthetic sample with fully resolved relations', async () => {
-  const model = JSON.parse(await read('catalog.json'));
+  const model = sample;
   assert.equal(model.databaseUUID, 'WEBGPU-DEMO');
   assert.equal(model.name, 'Orbital commerce / synthetic demo');
   assert.deepEqual(model.tables.map(table => table.name), [
@@ -20,19 +21,14 @@ test('published fixture is the synthetic sample with fully resolved relations', 
   assert.deepEqual(model.warnings, []);
 });
 
-test('HTML assets, module imports, and catalog fetch stay under the project Pages URL', async () => {
+test('HTML assets and module imports stay under the project Pages URL', async () => {
   const base = new URL('https://miyako.github.io/schema-explorer/');
   const html = await read('index.html');
   const paths = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(match => match[1]);
   assert.deepEqual(paths, ['./style.css', './app.mjs']);
-  for (const name of ['app.mjs', 'gpu.mjs', 'model.mjs']) {
+  for (const name of ['app.mjs', 'gpu.mjs', 'model.mjs', 'catalog.mjs', 'sample.mjs']) {
     const source = await read(name);
     for (const match of source.matchAll(/from ['"]([^'"]+)['"]/g)) paths.push(match[1]);
-    if (name === 'app.mjs') {
-      const request = source.match(/fetch\(new URL\('([^']+)', import\.meta\.url\)\)/);
-      assert.ok(request, 'catalog must resolve relative to the module URL');
-      paths.push(request[1]);
-    }
   }
   for (const path of paths) {
     assert.ok(new URL(path, base).pathname.startsWith('/schema-explorer/'), path);

@@ -1,0 +1,169 @@
+{
+  "collationLocale" : "ja",
+  "databaseUUID" : "1234567890ABCDEF1234567890ABCDEF",
+  "fileName" : "catalog.4DCatalog",
+  "fileSize" : 2122,
+  "indexCount" : 1,
+  "kind" : "catalog.structure",
+  "name" : "Catalog Fixture",
+  "relations" : [
+    {
+      "autoLoadManyToOne" : true,
+      "autoLoadOneToMany" : false,
+      "destination" : {
+        "fieldIndex" : 0,
+        "fieldName" : "ID",
+        "fieldUUID" : "CLIENT-ID",
+        "tableIndex" : 0,
+        "tableName" : "Clients",
+        "tableUUID" : "CLIENTS"
+      },
+      "foreignKey" : true,
+      "integrity" : "reject",
+      "inverseName" : "Invoices",
+      "name" : "Client",
+      "source" : {
+        "fieldIndex" : 1,
+        "fieldName" : "Client_ID",
+        "fieldUUID" : "INVOICE-CLIENT",
+        "tableIndex" : 1,
+        "tableName" : "Invoices",
+        "tableUUID" : "INVOICES"
+      },
+      "uuid" : "RELATION"
+    }
+  ],
+  "schemas" : [
+    "DEFAULT_SCHEMA"
+  ],
+  "tables" : [
+    {
+      "encryptable" : false,
+      "fields" : [
+        {
+          "autoSequence" : true,
+          "hidden" : false,
+          "indexUUIDs" : [
+            "CLIENT-INDEX"
+          ],
+          "name" : "ID",
+          "notNull" : true,
+          "number" : 1,
+          "primaryKey" : true,
+          "typeCode" : 4,
+          "unique" : true,
+          "uuid" : "CLIENT-ID"
+        },
+        {
+          "autoSequence" : false,
+          "hidden" : false,
+          "indexUUIDs" : [
+
+          ],
+          "limitingLength" : 40,
+          "name" : "Name",
+          "notNull" : false,
+          "number" : 3,
+          "primaryKey" : false,
+          "typeCode" : 14,
+          "unique" : false,
+          "uuid" : "CLIENT-NAME"
+        },
+        {
+          "autoSequence" : false,
+          "hidden" : false,
+          "indexUUIDs" : [
+
+          ],
+          "name" : "Notes",
+          "notNull" : false,
+          "number" : 8,
+          "primaryKey" : false,
+          "typeCode" : 17,
+          "unique" : false,
+          "uuid" : "CLIENT-NOTES"
+        },
+        {
+          "autoSequence" : false,
+          "hidden" : true,
+          "indexUUIDs" : [
+
+          ],
+          "name" : "Metadata",
+          "notNull" : false,
+          "number" : 9,
+          "primaryKey" : false,
+          "typeCode" : 21,
+          "unique" : false,
+          "uuid" : "CLIENT-META"
+        }
+      ],
+      "hidden" : false,
+      "name" : "Clients",
+      "number" : 7,
+      "position" : {
+        "x" : -20.5,
+        "y" : 10
+      },
+      "uuid" : "CLIENTS"
+    },
+    {
+      "encryptable" : true,
+      "fields" : [
+        {
+          "autoSequence" : false,
+          "hidden" : false,
+          "indexUUIDs" : [
+
+          ],
+          "name" : "ID",
+          "notNull" : false,
+          "number" : 1,
+          "primaryKey" : true,
+          "typeCode" : 4,
+          "unique" : false,
+          "uuid" : "INVOICE-ID"
+        },
+        {
+          "autoSequence" : false,
+          "hidden" : false,
+          "indexUUIDs" : [
+
+          ],
+          "name" : "Client_ID",
+          "notNull" : true,
+          "number" : 2,
+          "primaryKey" : false,
+          "typeCode" : 4,
+          "unique" : false,
+          "uuid" : "INVOICE-CLIENT"
+        },
+        {
+          "autoSequence" : false,
+          "hidden" : false,
+          "indexUUIDs" : [
+
+          ],
+          "name" : "NewType",
+          "notNull" : false,
+          "number" : 5,
+          "primaryKey" : false,
+          "typeCode" : 999,
+          "unique" : false,
+          "uuid" : "INVOICE-NEW"
+        }
+      ],
+      "hidden" : true,
+      "name" : "Invoices",
+      "number" : 42,
+      "position" : {
+        "x" : 400,
+        "y" : 20
+      },
+      "uuid" : "INVOICES"
+    }
+  ],
+  "warnings" : [
+
+  ]
+}

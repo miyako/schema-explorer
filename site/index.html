@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
   <title>4D / Schema orbit</title>
   <meta name="description" content="Explore a synthetic 4D commerce schema with an interactive WebGPU renderer.">
   <link rel="stylesheet" href="./style.css">
@@ -11,6 +13,8 @@
   <header>
     <div><span class="eyebrow">4D LAB / WEBGPU</span><h1>Schema orbit</h1></div>
     <div id="summary" aria-live="polite">Loading synthetic sample catalog...</div>
+    <button id="open-local">Open local file</button>
+    <button id="use-demo" hidden>Return to demo</button>
     <button id="fit">Fit all</button>
     <button id="front">Front view</button>
     <button id="reset">Reset layout</button>
@@ -22,6 +26,7 @@
       <label for="search">FIND A TABLE OR FIELD</label>
       <input id="search" type="search" placeholder="Search the catalog" autocomplete="off">
       <div id="matches" aria-live="polite"></div>
+      <p id="local-notes" role="status" hidden></p>
       <div id="tables"></div>
       <details><summary>Navigation</summary>
         <p>Drag to orbit. Shift-drag or right-drag to pan. Wheel / pinch to zoom.
@@ -59,6 +64,25 @@
       <details id="notices" hidden><summary>Catalog parser notes</summary><div id="warnings"></div></details>
     </div></aside>
   </main>
+  <dialog id="local-dialog" aria-labelledby="local-title" aria-describedby="local-privacy">
+    <form id="local-form">
+      <h2 id="local-title">Open a local catalog</h2>
+      <p id="local-privacy">No upload. Selected files are parsed only in this browser, never sent to a server
+        or saved by this app. Reloading clears the local schema.</p>
+      <label for="catalog-file">Catalog (.4DCatalog, up to 32 MiB)</label>
+      <input id="catalog-file" type="file" accept=".4DCatalog" required>
+      <label for="editor-file">Optional layout (catalog_editor.json, up to 4 MiB)</label>
+      <input id="editor-file" type="file" accept=".json,application/json">
+      <p>The browser cannot find adjacent files automatically. Select the matching
+        catalog_editor.json explicitly to use its positions; otherwise embedded
+        coordinates or the automatic grid are used.</p>
+      <p id="local-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button id="cancel-local" type="button">Cancel</button>
+        <button id="load-local" type="submit">Open locally</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="./app.mjs"></script>
 </body>
 </html>

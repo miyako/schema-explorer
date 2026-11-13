@@ -1,15 +1,41 @@
 import {makeScene, layout, height, fieldType, neighborhood, fitCamera, pick,
   cameraBasis, add, scale, expansion, makeTransition, advanceTransition} from './model.mjs';
 import {Renderer} from './gpu.mjs';
+import {readCatalogFiles} from './catalog.mjs';
+import sample from './sample.mjs';
 
 const $ = id => document.getElementById(id);
 const canvas = $('scene');
 let scene, renderer, selected = null, isolated = false, failed = false;
 let pending = false, dirty = true;
+let localRevision = 0;
 const motions = new Map();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const camera = {target: [0, 0, 0], distance: 1800, yaw: .15, pitch: .12};
 const aspect = () => canvas.clientWidth / Math.max(1, canvas.clientHeight);
+
+function openModel(model, local = false) {
+  const next = makeScene(model);
+  motions.clear();
+  renderer?.clearScene();
+  scene = next; selected = null; isolated = false;
+  $('search').value = ''; $('depth').value = 90;
+  $('summary').textContent = `${model.name || model.fileName}\n${scene.nodes.length} tables / ${scene.edges.length} resolved relations / ${local ? 'LOCAL FILE / not uploaded' : 'synthetic sample only'}`;
+  $('use-demo').hidden = !local;
+  $('warnings').replaceChildren();
+  const warnings = [...model.warnings];
+  if (scene.omitted) warnings.push(`${scene.omitted} unresolved relations cannot be drawn.`);
+  if (!scene.nodes.length) warnings.push('This catalog contains no tables.');
+  $('notices').hidden = !warnings.length;
+  $('notices').open = local && warnings.length > 0;
+  for (const warning of warnings) {
+    const p = document.createElement('p'); p.textContent = warning; $('warnings').append(p);
+  }
+  $('local-notes').hidden = !local || !warnings.length;
+  $('local-notes').textContent = local && warnings.length
+    ? `${warnings.length} parser notes. Some catalog entries or coordinates could not be used; see the inspector.` : '';
+  showTables(); select(null); updateDepth(); fit({yaw: .15, pitch: .12});
+}
 
 function fail(message) {
   failed = true;
@@ -199,6 +225,40 @@ function hit(event) {
 }
 
 function installControls() {
+  const cancelLocal = () => {
+    localRevision++;
+    $('local-form').reset();
+    $('load-local').disabled = $('cancel-local').disabled = false;
+    $('local-dialog').close();
+  };
+  $('open-local').onclick = () => {
+    $('local-error').hidden = true;
+    $('local-dialog').showModal();
+  };
+  $('cancel-local').onclick = cancelLocal;
+  $('local-dialog').addEventListener('cancel', cancelLocal);
+  $('local-form').onsubmit = async event => {
+    event.preventDefault();
+    const revision = ++localRevision;
+    $('load-local').disabled = true;
+    $('cancel-local').disabled = true;
+    $('local-error').hidden = true;
+    try {
+      const model = await readCatalogFiles($('catalog-file').files[0], $('editor-file').files[0]);
+      if (revision !== localRevision) return;
+      openModel(model, true);
+      $('local-form').reset();
+      $('local-dialog').close();
+    } catch (error) {
+      if (revision === localRevision) {
+        $('local-error').textContent = error.message;
+        $('local-error').hidden = false;
+      }
+    } finally {
+      if (revision === localRevision) $('load-local').disabled = $('cancel-local').disabled = false;
+    }
+  };
+  $('use-demo').onclick = () => openModel(sample);
   $('fit').onclick = () => fit();
   $('front').onclick = () => fit({yaw: 0, pitch: 0});
   $('reset').onclick = () => {
@@ -314,20 +374,7 @@ function hitPlane(x, y, z) {
 }
 
 try {
-  const response = await fetch(new URL('./catalog.json', import.meta.url));
-  if (!response.ok) throw new Error(`Catalog request failed: HTTP ${response.status}`);
-  scene = makeScene(await response.json());
-  $('summary').textContent = `${scene.model.name || scene.model.fileName}\n${scene.nodes.length} tables / ${scene.edges.length} resolved relations / synthetic sample only`;
-  const warnings = [...scene.model.warnings];
-  if (scene.omitted) warnings.push(`${scene.omitted} unresolved relations cannot be drawn.`);
-  if (!scene.nodes.length) warnings.push('This catalog contains no tables.');
-  if (warnings.length) {
-    $('notices').hidden = false;
-    for (const warning of warnings) {
-      const p = document.createElement('p'); p.textContent = warning; $('warnings').append(p);
-    }
-  }
-  installControls(); showTables(); updateDepth(); fit();
+  installControls(); openModel(sample);
   renderer = await Renderer.create(canvas, fail);
   invalidate();
 } catch (error) { fail(error); }

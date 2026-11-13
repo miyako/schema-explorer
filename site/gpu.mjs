@@ -90,6 +90,12 @@ export class Renderer {
     this.bufferSize = 0;
   }
 
+  clearScene() {
+    for (const cached of this.cache.values()) cached.texture.destroy();
+    this.cache.clear();
+    this.frame = null;
+  }
+
   texture(node, selected, overview = false, collapsed = false) {
     const key = overview ? 'overview' : `${node.id}/${collapsed}`;
     const version = overview ? 'overview' : String(selected);

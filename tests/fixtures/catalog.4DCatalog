@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE base SYSTEM "http://www.4d.com/dtd/2007/base.dtd">
+<base name="Catalog Fixture" uuid="1234567890ABCDEF1234567890ABCDEF" collation_locale="ja">
+  <schema name="DEFAULT_SCHEMA"/>
+  <table name="Clients" uuid="CLIENTS" id="7">
+    <field name="ID" uuid="CLIENT-ID" type="4" unique="true" autosequence="true" not_null="true" id="1">
+      <index_ref uuid="CLIENT-INDEX"/>
+    </field>
+    <field name="Name" uuid="CLIENT-NAME" type="14" limiting_length="40" id="3"/>
+    <field name="Notes" uuid="CLIENT-NOTES" type="17" limiting_length="0" id="8"/>
+    <field name="Metadata" uuid="CLIENT-META" type="21" id="9">
+      <field_extra visible="false"/>
+    </field>
+    <primary_key field_name="old ID" field_uuid="CLIENT-ID"/>
+    <table_extra>
+      <editor_table_info>
+        <coordinates left="-20.5" top="10" width="144" height="400"/>
+      </editor_table_info>
+    </table_extra>
+  </table>
+  <table name="Invoices" uuid="INVOICES" id="42" encryptable="true">
+    <field name="ID" uuid="INVOICE-ID" type="4" id="1"/>
+    <field name="Client_ID" uuid="INVOICE-CLIENT" type="4" never_null="true" id="2"/>
+    <field name="NewType" uuid="INVOICE-NEW" type="999" id="5"/>
+    <primary_key field_name="ID"/>
+    <table_extra visible="false">
+      <editor_table_info>
+        <coordinates left="400" top="20" width="144" height="200"/>
+      </editor_table_info>
+    </table_extra>
+  </table>
+  <relation uuid="RELATION" name_Nto1="Client" name_1toN="Invoices" auto_load_Nto1="true" auto_load_1toN="false" foreign_key="true" integrity="reject">
+    <related_field kind="source">
+      <field_ref uuid="INVOICE-CLIENT" name="old client name">
+        <table_ref uuid="INVOICES" name="old invoice table"/>
+      </field_ref>
+    </related_field>
+    <related_field kind="destination">
+      <field_ref uuid="CLIENT-ID" name="old ID">
+        <table_ref uuid="CLIENTS" name="old client table"/>
+      </field_ref>
+    </related_field>
+  </relation>
+  <index uuid="CLIENT-INDEX" kind="regular" type="7"/>
+  <future_extension><table name="Not a table"/></future_extension>
+</base>
